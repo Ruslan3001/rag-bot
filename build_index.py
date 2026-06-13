@@ -49,10 +49,17 @@ def build_vector_index(
     chunks = text_splitter.split_documents(documents)
     print(f"[+] Создано чанков: {len(chunks)}")
 
+    # Применяем паттерн Metadata Enrichment (Жемчужина архитектуры)
+    # Добавляем название файла (которое содержит суть документа) в начало каждого чанка
+    print("[*] Применение Metadata Enrichment (внедрение названий документов в чанки)...")
+    for chunk in chunks:
+        filename = os.path.basename(chunk.metadata.get('source', '')).replace('.md', '')
+        chunk.page_content = f"[Документ: {filename}]\n{chunk.page_content}"
+
     # Инициализируем локальную модель эмбеддингов (Hugging Face)
-    print("[*] Загрузка модели эмбеддингов 'all-MiniLM-L6-v2'...")
+    print("[*] Загрузка мультиязычной модели эмбеддингов 'paraphrase-multilingual-MiniLM-L12-v2'...")
     embeddings = HuggingFaceEmbeddings(
-        model_name="sentence-transformers/all-MiniLM-L6-v2",
+        model_name="sentence-transformers/paraphrase-multilingual-MiniLM-L12-v2",
         model_kwargs={'device': 'cpu'}
     )
 

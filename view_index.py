@@ -5,13 +5,14 @@
 """
 
 import pandas as pd
+import csv
 from langchain_huggingface import HuggingFaceEmbeddings
 from langchain_community.vectorstores import FAISS
 
 def export_index_to_csv(index_path: str = "faiss_index", output_csv: str = "index_contents.csv"):
     print(f"[*] Загрузка локальной модели эмбеддингов...")
     embeddings = HuggingFaceEmbeddings(
-        model_name="sentence-transformers/all-MiniLM-L6-v2",
+        model_name="sentence-transformers/paraphrase-multilingual-MiniLM-L12-v2",
         model_kwargs={'device': 'cpu'}
     )
     
@@ -30,14 +31,13 @@ def export_index_to_csv(index_path: str = "faiss_index", output_csv: str = "inde
         row = {
             "chunk_id": doc_id,
             "source": doc.metadata.get("source", "Неизвестно"),
-            # Заменяем реальные переносы строк на текстовые '\n',
-            # чтобы Excel помещал весь чанк строго в одну строку и одну ячейку.
-            "content": doc.page_content.replace('\n', ' \\n ')
+            # Убираем все переносы строк и лишние пробелы, чтобы чанк стал сплошным текстом без разрывов
+            "content": " ".join(doc.page_content.split())
         }
         data.append(row)
         
     df = pd.DataFrame(data)
-    df.to_csv(output_csv, index=False, encoding="utf-8-sig")
+    df.to_csv(output_csv, index=False, encoding="utf-8-sig", quoting=csv.QUOTE_ALL)
     print(f"[+] Успешно экспортировано {len(df)} чанков в файл '{output_csv}'.")
 
 if __name__ == "__main__":

@@ -9,7 +9,7 @@ from langchain_community.vectorstores import FAISS
 def run_interactive_viewer(index_path: str = "faiss_index"):
     print("[*] Загрузка локальной модели эмбеддингов...")
     embeddings = HuggingFaceEmbeddings(
-        model_name="sentence-transformers/all-MiniLM-L6-v2",
+        model_name="sentence-transformers/paraphrase-multilingual-MiniLM-L12-v2",
         model_kwargs={'device': 'cpu'}
     )
     
@@ -22,7 +22,7 @@ def run_interactive_viewer(index_path: str = "faiss_index"):
         if query.lower() in ['exit', 'выход', 'q']:
             break
             
-        results = vectorstore.similarity_search(query, k=3)
+        results = vectorstore.similarity_search(query, k=10)
         for i, doc in enumerate(results, 1):
             print(f"\n--- Чанк {i} | Источник: {doc.metadata.get('source', 'Неизвестно')} ---")
             print(doc.page_content)
