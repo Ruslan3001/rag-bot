@@ -14,8 +14,8 @@ from langchain_community.vectorstores import FAISS
 def build_vector_index(
     source_dir: str = "knowledge_base",
     index_save_path: str = "faiss_index",
-    chunk_size: int = 1000,
-    chunk_overlap: int = 200
+    chunk_size: int = 400,
+    chunk_overlap: int = 150
 ) -> None:
     """
     Загружает Markdown файлы из указанной директории, разбивает их на логические чанки,

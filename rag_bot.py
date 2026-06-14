@@ -6,9 +6,16 @@
 - Техники промптинга: Few-Shot и Chain-of-Thought.
 """
 import os
+import argparse
+import re
+
+# Отключаем прогресс-бары загрузки весов от Hugging Face
+os.environ["HF_HUB_DISABLE_PROGRESS_BARS"] = "1"
+
+from dotenv import load_dotenv
 from langchain_huggingface import HuggingFaceEmbeddings
 from langchain_community.vectorstores import FAISS
-from langchain_openai import ChatOpenAI
+from langchain_google_genai import ChatGoogleGenerativeAI
 from langchain_core.prompts import PromptTemplate
 
 # Промпт объединяет в себе инструкции (CoT) и примеры (Few-Shot)
@@ -42,11 +49,14 @@ PROMPT_TEMPLATE = """Ты — корпоративный ИИ-помощник Q
 Вопрос пользователя: {question}
 Ответ: """
 
-def run_bot(index_path: str = "faiss_index"):
-    api_key = os.getenv("OPENAI_API_KEY")
+def run_bot(index_path: str = "faiss_index", debug: bool = False):
+    # Загружаем переменные окружения из файла .env
+    load_dotenv()
+
+    api_key = os.getenv("GOOGLE_API_KEY")
     if not api_key:
-        print("[-] Ошибка: Не задана переменная окружения OPENAI_API_KEY.")
-        print("Установите её в терминале: set OPENAI_API_KEY=sk-ВАШ-КЛЮЧ (Windows) или export OPENAI_API_KEY=sk-ВАШ-КЛЮЧ (Mac/Linux)")
+        print("[-] Ошибка: Не задана переменная окружения GOOGLE_API_KEY.")
+        print("Установите её в файле .env или терминале: set GOOGLE_API_KEY=ВАШ-КЛЮЧ (Windows) или export GOOGLE_API_KEY=ВАШ-КЛЮЧ (Mac/Linux)")
         return
 
     print("[*] Загрузка локальной модели эмбеддингов...")
@@ -58,9 +68,9 @@ def run_bot(index_path: str = "faiss_index"):
     print("[*] Подключение к FAISS индексу...")
     vectorstore = FAISS.load_local(index_path, embeddings, allow_dangerous_deserialization=True)
     
-    print("[*] Инициализация LLM...")
-    # Используем gpt-3.5-turbo для быстроты и дешевизны, Temperature=0 делает ответы детерминированными
-    llm = ChatOpenAI(model="gpt-3.5-turbo", temperature=0.0) 
+    print("[*] Инициализация LLM (Gemini)...")
+    # Используем gemini-1.5-flash для быстроты и эффективности, Temperature=0 делает ответы детерминированными
+    llm = ChatGoogleGenerativeAI(model="gemini-3.5-flash", temperature=0.0)
 
     print("\n[+] Бот готов! Введите ваш запрос (или 'exit' для выхода).")
     while True:
@@ -69,13 +79,51 @@ def run_bot(index_path: str = "faiss_index"):
             break
         if not query.strip(): continue
         
-        retrieved_docs = vectorstore.similarity_search(query, k=4)
+        # Используем метод с возвратом скоринга (дистанции L2)
+        docs_and_scores = vectorstore.similarity_search_with_score(query, k=8)
+        
+        # --- ЛЕКСИЧЕСКИЙ БУСТИНГ (ПЕРЕРАНЖИРОВАНИЕ) ---
+        # Извлекаем корни длинных слов из запроса (первые 5 букв), чтобы нивелировать падежи (Авалон/Авалона)
+        query_roots = [w.lower()[:5] for w in re.findall(r'\b\w{5,}\b', query)]
+        
+        boosted_docs = []
+        for doc, score in docs_and_scores:
+            source_name = doc.metadata.get('source', '').lower()
+            # Если корень значимого слова из запроса есть в названии документа, даем сильный бонус
+            if any(root in source_name for root in query_roots):
+                score -= 0.5  # Для метрики L2: чем меньше значение, тем вектор "ближе"
+            boosted_docs.append((doc, score))
+            
+        # Пересортируем выдачу по обновленному скору
+        boosted_docs.sort(key=lambda x: x[1])
+
+        # Отделяем документы для передачи в контекст LLM
+        retrieved_docs = [doc for doc, score in boosted_docs]
+        
+        if debug:
+            print("\n[DEBUG] Извлеченные чанки из векторной базы:")
+            for i, (doc, score) in enumerate(boosted_docs, 1):
+                source = doc.metadata.get('source', 'Неизвестно')
+                print(f"\n--- Чанк {i} | Источник: {source} | L2 Дистанция: {score:.4f} ---")
+                print(doc.page_content)
+            
+            confirm = input("\n[?] Отправить этот контекст в LLM? (y/n): ")
+            if confirm.lower() not in ['y', 'yes', 'да', 'д']:
+                print("[-] Отправка отменена. Попробуйте переформулировать запрос.")
+                continue
+
         context = "\n\n---\n\n".join([doc.page_content for doc in retrieved_docs])
         prompt = PromptTemplate.from_template(PROMPT_TEMPLATE).format(context=context, question=query)
         
         print("\nБот: (думает...)")
         response = llm.invoke(prompt)
-        print(f"\n{response.content}")
+        # Извлекаем текст, так как Gemini может возвращать список словарей вместо строки
+        answer = response.content[0]['text'] if isinstance(response.content, list) else response.content
+        print(f"\n{answer}")
 
 if __name__ == "__main__":
-    run_bot()
+    parser = argparse.ArgumentParser(description="Консольный RAG-бот")
+    parser.add_argument("--debug", action="store_true", help="Включить режим отладки для проверки извлеченного контекста")
+    args = parser.parse_args()
+    
+    run_bot(debug=args.debug)
