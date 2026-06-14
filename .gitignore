@@ -7,3 +7,6 @@ venv/
 # Python
 __pycache__/
 *.pyc
+
+# Векторная база данных (не коммитим бинарники)
+faiss_index/
